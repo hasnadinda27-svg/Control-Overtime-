@@ -336,14 +336,15 @@
     <div class="header">
         <h1>Control Overtime - QC Dept</h1>
         <div class="controls">
-            <select id="select-month" onchange="renderApp()"></select>
-            <select id="select-year" onchange="renderApp()"></select>
+            <select id="select-month" onchange="loadAndRender()"></select>
+            <select id="select-year" onchange="loadAndRender()"></select>
             <button class="btn btn-warning" onclick="document.getElementById('excel-file-input').click()">📁 Upload Excel Actual</button>
             <input type="file" id="excel-file-input" accept=".xlsx, .xls" style="display: none;" onchange="handleExcelUpload(event)">
             <button class="btn btn-success" onclick="saveCurrentMonthData()">Simpan Perubahan</button>
             <button class="btn" onclick="addNewEmployee()">+ Tambah Karyawan</button>
             <button class="btn" onclick="exportToCSV()">Export CSV</button>
             <span id="autoSaveStatus" style="font-size: 12px; color: #666; margin-left: 8px; align-self: center;"></span>
+            <span id="loadingStatus" style="font-size: 12px; color: #666; margin-left: 8px; align-self: center;"></span>
         </div>
     </div>
 
@@ -1449,7 +1450,51 @@
             }, 1500);
         }
 
-        renderApp();
+        async function loadFromGoogleSheets() {
+            const year = yearSelect.value;
+            const month = monthNames[monthSelect.value - 1];
+            const sheetName = `${month} ${year}`.substring(0, 31);
+            const totalDays = getDaysInMonth(year, monthSelect.value);
+            const key = getKey();
+
+            try {
+                const res = await fetch(`${GOOGLE_SHEETS_WEB_APP_URL}?sheet=${encodeURIComponent(sheetName)}`);
+                const data = await res.json();
+
+                if (data.status === 'success' && data.rows && data.rows.length > 1) {
+                    let monthData = {};
+                    employees.forEach((emp, index) => {
+                        const planRow = data.rows[1 + index * 2];
+                        const actRow = data.rows[2 + index * 2];
+                        if (!planRow || !actRow) return;
+
+                        const empId = `emp_${index}`;
+                        let plan = [];
+                        let actual = [];
+                        for (let d = 0; d < totalDays; d++) {
+                            plan.push(parseFloat(planRow[5 + d]) || 0);
+                            actual.push(parseFloat(actRow[5 + d]) || 0);
+                        }
+                        monthData[empId] = { npk: emp.npk, name: emp.name, group: emp.group, plan, actual };
+                    });
+                    localStorage.setItem(key, JSON.stringify(monthData));
+                }
+            } catch (err) {
+                console.error('Gagal mengambil data dari Google Sheets:', err);
+            }
+        }
+
+        async function loadAndRender() {
+            const loadingEl = document.getElementById('loadingStatus');
+            if (loadingEl) loadingEl.textContent = '🔄 Mengambil data terbaru dari Google Sheets...';
+
+            await loadFromGoogleSheets();
+
+            if (loadingEl) loadingEl.textContent = '';
+            renderApp();
+        }
+
+        loadAndRender();
     </script>
 </body>
 </html>
