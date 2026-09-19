@@ -374,6 +374,11 @@
         </div>
     </div>
 
+    <div class="chart-container" style="margin: 0 20px 20px 20px;">
+        <h2 id="empChartTitle">Total Overtime Per Karyawan</h2>
+        <canvas id="employeeChart" height="55"></canvas>
+    </div>
+
     <div class="section-title">Ringkasan Overtime Per Minggu (Weekly Summary)</div>
     <div class="summary-table-container">
         <table>
@@ -725,6 +730,14 @@
 
             renderChart(totalDays, dailyPlanTotals, dailyActualTotals, corpData, year, month);
             renderWeeklyChart(weeklyData);
+
+            let empTotals = employees.map((emp, index) => {
+                const empId = `emp_${index}`;
+                const d = monthData[empId] || { plan: [], actual: [] };
+                const sum = arr => (arr || []).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                return { name: emp.name, plan: sum(d.plan), actual: sum(d.actual) };
+            });
+            renderEmployeeChart(empTotals, month, year);
         }
 
         // Handler untuk Membaca File Excel Actual OT
@@ -1146,6 +1159,60 @@
             });
         }
 
+        let employeeChartInstance = null;
+        function renderEmployeeChart(empTotals, month, year) {
+            if (employeeChartInstance) employeeChartInstance.destroy();
+
+            const titleEl = document.getElementById('empChartTitle');
+            if (titleEl) titleEl.innerText = `Total Overtime Per Karyawan - ${month} ${year}`;
+
+            const ctx = document.getElementById('employeeChart').getContext('2d');
+            employeeChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: empTotals.map(e => e.name),
+                    datasets: [
+                        {
+                            label: 'Plan',
+                            data: empTotals.map(e => e.plan),
+                            backgroundColor: '#c0eca1',
+                            borderColor: '#4d7c0f',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Actual',
+                            data: empTotals.map(e => e.actual),
+                            backgroundColor: '#ef4444',
+                            borderColor: '#b91c1c',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    layout: { padding: { top: 25 } },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { autoSkip: false, maxRotation: 90, minRotation: 60, font: { size: 9 } }
+                        },
+                        y: { beginAtZero: true, title: { display: true, text: 'Jam OT' } }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'top',
+                            formatter: (val) => val > 0 ? (val % 1 === 0 ? val : val.toFixed(1)) : '',
+                            font: { weight: 'bold', size: 9 },
+                            color: '#0f172a'
+                        }
+                    }
+                }
+            });
+        }
+
         function updateValue(input) {
             const empId = input.getAttribute('data-emp');
             const type = input.getAttribute('data-type');
@@ -1233,6 +1300,14 @@
 
             renderChart(totalDays, dailyPlanTotals, dailyActualTotals, corpData, year, month);
             renderWeeklyChart(weeklyData);
+
+            let empTotals = employees.map((emp, index) => {
+                const empId = `emp_${index}`;
+                const d = monthData[empId] || { plan: [], actual: [] };
+                const sum = arr => (arr || []).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                return { name: emp.name, plan: sum(d.plan), actual: sum(d.actual) };
+            });
+            renderEmployeeChart(empTotals, month, year);
         }
 
         function saveCurrentMonthData() {
@@ -1409,6 +1484,75 @@
                 rows.push(rowAct);
             });
 
+            // --- Data Plan Coorporate (input manual) ---
+            const corpKey = getCorporateKey();
+            let corpData = JSON.parse(localStorage.getItem(corpKey)) || Array(totalDays).fill(0);
+
+            rows.push([]);
+            let rowCorp = ["", "", "", "PLAN COORPORATE", "C"];
+            let corpSum = 0;
+            for (let d = 0; d < totalDays; d++) {
+                let v = parseFloat(corpData[d]) || 0;
+                rowCorp.push(v);
+                corpSum += v;
+            }
+            rowCorp.push(corpSum);
+            rows.push(rowCorp);
+
+            // --- Hitung total harian untuk ringkasan ---
+            let dailyPlan = Array(totalDays).fill(0);
+            let dailyActual = Array(totalDays).fill(0);
+            employees.forEach((emp, index) => {
+                const data = monthData[`emp_${index}`];
+                if (!data) return;
+                for (let d = 0; d < totalDays; d++) {
+                    dailyPlan[d] += parseFloat(data.plan[d]) || 0;
+                    dailyActual[d] += parseFloat(data.actual[d]) || 0;
+                }
+            });
+
+            // --- Ringkasan & Akumulasi Harian ---
+            rows.push([]);
+            rows.push(["RINGKASAN & AKUMULASI HARIAN"]);
+            let headHarian = ["", "", "", "Kategori", ""];
+            for (let d = 1; d <= totalDays; d++) headHarian.push(d);
+            headHarian.push("Total");
+            rows.push(headHarian);
+
+            const buatBaris = (label, arr) => {
+                let r = ["", "", "", label, ""];
+                let s = 0;
+                for (let d = 0; d < totalDays; d++) { r.push(arr[d]); s += arr[d]; }
+                r.push(s);
+                return r;
+            };
+            const akumulasi = (arr) => {
+                let out = [], run = 0;
+                for (let d = 0; d < totalDays; d++) { run += arr[d]; out.push(run); }
+                return out;
+            };
+            const corpNum = corpData.map(v => parseFloat(v) || 0);
+
+            rows.push(buatBaris("Plan Coorporate", corpNum));
+            rows.push(buatBaris("Plan", dailyPlan));
+            rows.push(buatBaris("Actual", dailyActual));
+            let akumCorp = akumulasi(corpNum);
+            let akumPlan = akumulasi(dailyPlan);
+            let akumAct = akumulasi(dailyActual);
+            rows.push(["", "", "", "Plan Accumulation Coorporate", "", ...akumCorp, akumCorp[totalDays - 1] || 0]);
+            rows.push(["", "", "", "Plan Accumulation", "", ...akumPlan, akumPlan[totalDays - 1] || 0]);
+            rows.push(["", "", "", "Actual Accumulation", "", ...akumAct, akumAct[totalDays - 1] || 0]);
+
+            // --- Ringkasan Overtime Per Minggu ---
+            const weekly = calculateWeeklyData(totalDays, dailyPlan, dailyActual, corpNum);
+            rows.push([]);
+            rows.push(["RINGKASAN OVERTIME PER MINGGU (WEEKLY SUMMARY)"]);
+            rows.push(["", "", "", "Kategori", "", "W1 (Tgl 1-7)", "W2 (Tgl 8-14)", "W3 (Tgl 15-21)", "W4 (Tgl 22-28)", "W5 (Tgl 29-31)", "Total"]);
+            const barisMinggu = (label, arr) => ["", "", "", label, "", ...arr, arr.reduce((a, b) => a + b, 0)];
+            rows.push(barisMinggu("Plan Coorporate", weekly.corp));
+            rows.push(barisMinggu("Plan", weekly.plan));
+            rows.push(barisMinggu("Actual", weekly.actual));
+
             return { sheetName: `${month} ${year}`.substring(0, 31), rows };
         }
 
@@ -1478,6 +1622,14 @@
                         monthData[empId] = { npk: emp.npk, name: emp.name, group: emp.group, plan, actual };
                     });
                     localStorage.setItem(key, JSON.stringify(monthData));
+
+                    // Pulihkan data Plan Coorporate (baris bertanda "C" di kolom Tipe)
+                    const corpRow = data.rows.find(r => r && r[4] === 'C');
+                    if (corpRow) {
+                        let corp = [];
+                        for (let d = 0; d < totalDays; d++) corp.push(parseFloat(corpRow[5 + d]) || 0);
+                        localStorage.setItem(getCorporateKey(), JSON.stringify(corp));
+                    }
                 }
             } catch (err) {
                 console.error('Gagal mengambil data dari Google Sheets:', err);
